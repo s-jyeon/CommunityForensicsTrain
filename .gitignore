@@ -1,0 +1,4 @@
+.venv/
+*.pt
+train_data/
+trained_model/

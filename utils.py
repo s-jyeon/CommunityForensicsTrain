@@ -62,6 +62,8 @@ def parse_args():
     #parser.add_argument("--eval_separately", action="store_true", help="If set, evaluate each generator in test set separately. Note that evaluating AP requires paired real/fake data -- make sure the test set is paired if you need to compute AP.")
 
     # Model arguments
+    parser.add_argument( "--num_frames",
+type=int,default=16,help="Number of frames sampled per video")
     parser.add_argument('--model_inner_dim', type=int, default=512, help='Model inner dimension')
     parser.add_argument('--model_size', type=str, default='small', help='Model size. Small or tiny')
     parser.add_argument('--input_size', type=int, default=384, help='Input size. 224 or 384')
@@ -267,8 +269,13 @@ def train_one_epoch(
         # Forward + backward + optimize
         trainBM.start()
         with torch.autocast(device_type='cuda', dtype=parse_floating_point_string(args.amp_dtype), enabled=args.use_amp):
+            # inputs가 (B, T, C, H, W) 형태라면 시간 축 평균
+            if inputs.dim() == 5:
+                inputs = inputs.mean(dim=1)  # (B, C, H, W)로 변환
+            
             outputs = model(inputs)
             loss = criterion(outputs, labels)
+
         local_loss = local_window_loss.put(loss.item(), returnval=True) # update local window loss
         running_loss += loss.item()
         scaler.scale(loss).backward() # AMP. scaler.scale(loss) will return loss if not enabled. If enabled, return scaled loss

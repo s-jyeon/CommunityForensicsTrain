@@ -1,23 +1,36 @@
-### Dataloader for fake/real image classification
-
 import torch
 import pandas as pd
 import numpy as np
 import os
 import PIL.Image
+from PIL import Image
 import random
 import custom_transforms as ctrans
 import math
 import utils as ut
+import cv2
 
 from torchvision import transforms
-#from torchvision.transforms import v2 as transforms
+import torchvision.io as io_torch
+from torchvision.transforms import functional as F
 from torch.utils.data.distributed import DistributedSampler
 from custom_sampler import DistributedEvalSampler
 from functools import partial
 import datasets as ds
 import io
 import logging
+
+# 지원하는 파일 확장자
+IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp', '.gif'}
+VIDEO_EXTS = {'.mp4', '.avi', '.mov', '.mkv', '.webm'}
+
+def uniform_frame_indices(total_frames: int, num_frames: int) -> np.ndarray:
+    """비디오 프레임을 균등하게 샘플링"""
+    if total_frames <= 0:
+        return np.array([], dtype=int)
+    if total_frames <= num_frames:
+        return np.arange(total_frames, dtype=int)
+    return np.linspace(0, total_frames - 1, num_frames, dtype=int)
 
 class dataset_huggingface(torch.utils.data.Dataset):
     """
@@ -49,17 +62,55 @@ class dataset_huggingface(torch.utils.data.Dataset):
         self.dataset = self.get_hf_dataset()
     
     def __getitem__(self, index):
-        """
-        Returns the image and label for the given index.
-        """
-        data = self.dataset[index]
-        image_bytes = data['image_data']
-        label = int(data['label'])
-        generator_name = data['model_name']
+        img_path = self.df.iloc[index]['ImagePath']
+        label = int(self.df.iloc[index]['Label'])
+        generator_name = self.df.iloc[index]['GeneratorName']
 
-        img = PIL.Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        if img_path.lower().endswith(tuple(VIDEO_EXTS)):
+            # 비디오 처리: 균등 샘플링으로 num_frames개 추출
+            data = self.load_video(img_path, num_frames=self.args.num_frames)
+        else:
+            # 기존 이미지 처리
+            data = PIL.Image.open(img_path).convert("RGB")
 
-        return img, label, generator_name
+        return data, label, generator_name
+
+    def load_video(self, video_path, num_frames=10):
+        """
+        비디오에서 균등 샘플링 후 중앙 프레임 1장만 반환
+        Returns: PIL.Image (RGB)
+        """
+        try:
+            cap = cv2.VideoCapture(video_path)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+            if total_frames <= 0:
+                cap.release()
+                return Image.new("RGB", (224, 224))
+    
+            frame_indices = uniform_frame_indices(total_frames, num_frames)
+            if len(frame_indices) == 0:
+                cap.release()
+                return Image.new("RGB", (224, 224))
+    
+            # 중앙 프레임 하나만 선택
+            center_idx = frame_indices[len(frame_indices) // 2]
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(center_idx))
+    
+            ret, frame = cap.read()
+            cap.release()
+    
+            if not ret:
+                return Image.new("RGB", (224, 224))
+    
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame_pil = Image.fromarray(frame_rgb)
+    
+            return frame_pil
+    
+        except Exception as e:
+            print(f"Error loading video {video_path}: {e}")
+            return Image.new("RGB", (224, 224))
 
     def get_hf_dataset(self):
         """
@@ -121,16 +172,79 @@ class dataset_folder_based(torch.utils.data.Dataset):
         self.df = self.get_index(dir)
 
     def __getitem__(self, index):
-        """
-        Returns the image and label for the given index.
-        """
         img_path = self.df.iloc[index]['ImagePath']
         label = int(self.df.iloc[index]['Label'])
         generator_name = self.df.iloc[index]['GeneratorName']
 
-        img = PIL.Image.open(img_path).convert("RGB")
+        if img_path.lower().endswith(tuple(VIDEO_EXTS)):
+            # 비디오 처리: 균등 샘플링으로 num_frames개 추출
+            data = self.load_video(img_path, num_frames=self.args.num_frames)
+        else:
+            # 이미지 처리: PIL Image 반환
+            data = PIL.Image.open(img_path).convert("RGB")
 
-        return img, label, generator_name
+        return data, label, generator_name
+    
+    def load_video(self, video_path, num_frames=10):
+        """
+        비디오에서 균등하게 num_frames개의 프레임을 추출합니다.
+        인퍼런스 코드의 uniform_frame_indices 방식 사용
+        
+        Args:
+            video_path: 비디오 파일 경로
+            num_frames: 추출할 프레임 수
+        Returns: (num_frames, C, H, W) tensor 또는 실제 추출된 프레임 수
+        """
+        try:
+            cap = cv2.VideoCapture(video_path)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            
+            if total_frames <= 0:
+                cap.release()
+                # 빈 비디오인 경우 기본값 반환
+                return torch.zeros((1, 3, 224, 224))
+            
+            # 균등 샘플링 인덱스 계산
+            frame_indices = uniform_frame_indices(total_frames, num_frames)
+            
+            if len(frame_indices) == 0:
+                cap.release()
+                return torch.zeros((1, 3, 224, 224))
+            
+            frames = []
+            for idx in frame_indices:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+                ret, frame = cap.read()
+                if not ret:
+                    continue
+                # BGR to RGB 변환
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                # PIL Image로 변환
+                frame_pil = Image.fromarray(frame_rgb)
+                frames.append(frame_pil)
+            
+            cap.release()
+            
+            if len(frames) == 0:
+                return torch.zeros((1, 3, 224, 224))
+            
+            # PIL Image 리스트 반환 (transform은 SubsetWithTransform에서 적용)
+            # 하지만 일관성을 위해 텐서로 변환
+            frame_tensors = []
+            for frame_pil in frames:
+                # PIL to Tensor (C, H, W)
+                frame_tensor = F.to_tensor(frame_pil)
+                frame_tensors.append(frame_tensor)
+            
+            # (num_frames, C, H, W)
+            frames_tensor = torch.stack(frame_tensors)
+            
+            return frames_tensor
+            
+        except Exception as e:
+            print(f"Error loading video {video_path}: {e}")
+            # 에러 발생 시 기본값 반환
+            return torch.zeros((1, 3, 224, 224))
 
     def __len__(self):
         """
@@ -175,39 +289,46 @@ class dataset_folder_based(torch.utils.data.Dataset):
 
     def index_directory(self, dir, report_every=1000):
         """
-        Indexes the given directory and returns a dataframe with the image paths, labels, and generator names.
-        The directory must be formatted as follows:
-        - <generator_or_dataset_name>
-            ∟ <label -- "real" or "fake">
-                ∟ <image_name>.{jpg,png,...}
-        `dir` should point to the parent directory of the `generator_or_dataset_name` folders.
-        """  
-        df = pd.DataFrame(columns=['ImagePath', 'Label', 'GeneratorName'])
-        temp_dfs=[]
+        디렉토리를 인덱싱합니다.
+        - 이미지: 각 이미지를 하나의 샘플로 처리
+        - 비디오: 각 비디오를 하나의 샘플로 처리 (FrameIdx는 -1로 설정)
+        """
+        columns = ['ImagePath', 'Label', 'GeneratorName', 'FrameIdx']
+        temp_dfs = []
+    
         for root, dirs, files in os.walk(dir):
             for file in files:
-                if file.endswith(('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp', '.gif')):
-                    # get the generator name and label from the directory structure
-                    generator_name=os.path.basename(os.path.dirname(root))
-                    label=os.path.basename(root) # should be "real" or "fake"
-                    label_int=self.get_label_int(label)
-                    # get the image path
-                    image_path=os.path.join(root, file)
-                    # append the image path, label, and generator name to the list
-                    temp_dfs.append(pd.DataFrame([[image_path, label_int, generator_name]], columns=['ImagePath', 'Label', 'GeneratorName']))
-                    if len(temp_dfs) % report_every == 0 and self.args.rank == 0:
-                        print(f"\rIndexed {len(temp_dfs)} images...          ", end='', flush=True)
-        df = pd.concat(temp_dfs, ignore_index=True)
-        print("") # print a new line after the progress bar
-        # sort the dataframe by generator name, label, and image name
-        df = df.sort_values(by=['GeneratorName', 'Label', 'ImagePath'])
-        df = df.reset_index(drop=True)
-        # save the dataframe
-        df.to_csv(os.path.join(dir, 'index.csv'), index=False)
-
-        self.logger.info(f"Indexed the directory {dir} and saved the index file to {os.path.join(dir, 'index.csv')}")
-        return df
+                file_lower = file.lower()
+                if not (any(file_lower.endswith(ext) for ext in IMAGE_EXTS) or 
+                       any(file_lower.endswith(ext) for ext in VIDEO_EXTS)):
+                    continue
     
+                generator_name = os.path.basename(os.path.dirname(root))
+                label = os.path.basename(root)
+                label_int = self.get_label_int(label)
+                path = os.path.join(root, file)
+    
+                # 이미지와 비디오 모두 하나의 샘플로 처리
+                # 비디오의 경우 __getitem__에서 num_frames만큼 프레임을 로드함
+                temp_dfs.append(
+                    pd.DataFrame(
+                        [[path, label_int, generator_name, -1]],
+                        columns=columns
+                    )
+                )
+    
+                if len(temp_dfs) % report_every == 0 and self.args.rank == 0:
+                    print(f"\rIndexed {len(temp_dfs)} samples...", end='', flush=True)
+    
+        df = pd.concat(temp_dfs, ignore_index=True)
+        df = df.sort_values(by=['GeneratorName', 'Label', 'ImagePath', 'FrameIdx'])
+        df = df.reset_index(drop=True)
+    
+        df.to_csv(os.path.join(dir, 'index.csv'), index=False)
+        self.logger.info(f"Indexed directory {dir}")
+    
+        return df
+
     def limit_real_data(self, df, num_max_images):
         """
         Limits the real data to contain `num_max_images` total images by preserving the smallest datasets first.
@@ -314,21 +435,32 @@ def get_transform(args, mode="train", dtype=torch.float32):
         
 class SubsetWithTransform(torch.utils.data.Dataset):
     """
-    Custom subset class which allows to customize transform for each subsets got from random_split()
+    Dataset wrapper applying transform.
+    All inputs are treated as images (PIL Image).
     """
     def __init__(self, subset, transform=None):
         self.subset = subset
-        self.subset_len = len(subset)
         self.transform = transform
-        
-    def __getitem__(self, index):
-        img, lab, generator_name = self.subset[index]
-        if self.transform:
-            img = self.transform(img)
-        return img, lab, generator_name
 
     def __len__(self):
-        return self.subset_len
+        return len(self.subset)
+
+    def __getitem__(self, index):
+        data, lab, generator_name = self.subset[index]
+
+        if self.transform:
+            if isinstance(data, torch.Tensor):
+                if data.ndim == 4:  # video
+                    data = [F.to_pil_image(f) for f in data]
+                else:
+                    data = F.to_pil_image(data)
+            if isinstance(data, list):
+                data = torch.stack([self.transform(d) for d in data])
+            else: 
+                data = self.transform(data)
+
+        return data, lab, generator_name
+
 
 def set_seeds_for_data(seed=11997733):
     """

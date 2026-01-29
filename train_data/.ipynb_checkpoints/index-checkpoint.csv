@@ -1,0 +1,21 @@
+ImagePath,Label,GeneratorName
+train_data/real/AIVideo_260129_6717b8a6-5d59-48a0-8898-c06708368888_0_MiriCanvas.mp4,0,train_data
+train_data/real/AIVideo_260129_eeeedd23-d81c-4a59-aebe-b5b26733de3c_0_MiriCanvas.mp4,0,train_data
+train_data/real/PixVerse_V5.6_Image_Text_720P_The_person_slowl.mp4,0,train_data
+train_data/real/PixVerse_V5.6_Image_Text_720P_The_person_slowl1.mp4,0,train_data
+train_data/real/kling_20260129_Image_to_Video_A_very_sho_3769_0.mp4,0,train_data
+train_data/real/kling_20260129_Image_to_Video_A_very_sho_3771_0.mp4,0,train_data
+train_data/real/kling_20260129_Image_to_Video_A_very_sho_3781_0.mp4,0,train_data
+train_data/real/kling_20260129_Image_to_Video_A_very_sho_3801_0.mp4,0,train_data
+train_data/real/kling_20260129_Image_to_Video_A_very_sho_3811_0.mp4,0,train_data
+train_data/real/video.mp4,0,train_data
+train_data/fake/grok-video-02360a4c-6751-451a-97cd-8568def3c2d3 (1).mp4,1,train_data
+train_data/fake/grok-video-02360a4c-6751-451a-97cd-8568def3c2d3.mp4,1,train_data
+train_data/fake/grok-video-6b118894-c149-4b2b-99b2-c85586f87455 (1).mp4,1,train_data
+train_data/fake/grok-video-6b118894-c149-4b2b-99b2-c85586f87455 (2).mp4,1,train_data
+train_data/fake/grok-video-6b118894-c149-4b2b-99b2-c85586f87455 (3).mp4,1,train_data
+train_data/fake/grok-video-6b118894-c149-4b2b-99b2-c85586f87455.mp4,1,train_data
+train_data/fake/grok-video-d55956b6-3009-4004-8fe1-2aeec8691d69 (2).mp4,1,train_data
+train_data/fake/grok-video-e86585fe-e45b-4431-a5ef-3fe677172bed (1).mp4,1,train_data
+train_data/fake/grok-video-e86585fe-e45b-4431-a5ef-3fe677172bed (2).mp4,1,train_data
+train_data/fake/hf_20260129_021616_e45e2534-ffcd-4666-9637-70e8a306accb.mp4,1,train_data
