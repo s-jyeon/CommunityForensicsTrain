@@ -6,3 +6,4 @@ trained_model/
 *.zip
 *.tar.gz
 output/
+test_data.tar.xz
