@@ -358,6 +358,12 @@ def evaluate_one_epoch(
     with torch.no_grad():
         for i, data in enumerate(dataloader, 0):
             inputs, labels, generator_names = unpack_data_and_preprocess(data, rank, torch.float32)
+    
+            # --- 추가: 차원 보정 로직 ---
+            if len(inputs.shape) == 5:
+                # [B, F, C, H, W] -> [B, C, H, W] 로 변경 (첫 번째 프레임만 사용)
+                # 만약 여러 프레임을 합쳐야 한다면 flatten 등을 써야 하지만, 보통은 첫 프레임을 씁니다.
+                inputs = inputs[:, 0, :, :, :]
 
             outputs = model(inputs)
             loss = criterion(outputs, labels)
@@ -641,25 +647,60 @@ def load_ckpt_from_huggingface(model, hf_repo_id, rank):
         print(f"Model weights loaded from Hugging Face: {hf_repo_id}")
     return model
 
+# def load_checkpoint(model, optimizer, scheduler, scaler, ckpt_path, rank):
+#     """
+#     Loads checkpoint from ckpt_path
+#     """
+#     dist.barrier()
+#     map_location = {'cuda:0': f'cuda:{rank}'}
+#     #map_location = f'cuda:{rank}'
+#     checkpoint = torch.load(ckpt_path, map_location=map_location)
+#     # clean checkpoint
+#     state_dict = checkpoint['model']
+#     if list(state_dict.keys())[0].startswith("_orig_mod"):
+#         checkpoint['model'] = {key.replace("_orig_mod.", ""): state_dict[key] for key in state_dict.keys()}
+#     model.load_state_dict(checkpoint['model'])
+#     optimizer.load_state_dict(checkpoint['optimizer'])
+#     scheduler.load_state_dict(checkpoint['scheduler'])
+#     if 'scalar' in checkpoint.keys():
+#         scaler.load_state_dict(checkpoint['scaler'])
+#     epoch = checkpoint['epoch']
+#     itr = checkpoint['itr']
+
+#     if rank==0:
+#         print(f"Checkpoint loaded from {ckpt_path}. Epoch: {epoch}, Itr: {itr}")
+
+#     return model, optimizer, scheduler, epoch, itr
 def load_checkpoint(model, optimizer, scheduler, scaler, ckpt_path, rank):
     """
     Loads checkpoint from ckpt_path
     """
     dist.barrier()
     map_location = {'cuda:0': f'cuda:{rank}'}
-    #map_location = f'cuda:{rank}'
     checkpoint = torch.load(ckpt_path, map_location=map_location)
-    # clean checkpoint
-    state_dict = checkpoint['model']
+    
+    # checkpoint가 dict가 아니거나 단순 state_dict인 경우
+    if 'model' in checkpoint:
+        state_dict = checkpoint['model']
+    else:
+        state_dict = checkpoint  # 단순 state_dict 파일
+
+    # key cleanup
     if list(state_dict.keys())[0].startswith("_orig_mod"):
-        checkpoint['model'] = {key.replace("_orig_mod.", ""): state_dict[key] for key in state_dict.keys()}
-    model.load_state_dict(checkpoint['model'])
-    optimizer.load_state_dict(checkpoint['optimizer'])
-    scheduler.load_state_dict(checkpoint['scheduler'])
-    if 'scalar' in checkpoint.keys():
+        state_dict = {key.replace("_orig_mod.", ""): state_dict[key] for key in state_dict.keys()}
+
+    model.load_state_dict(state_dict)
+
+    # optimizer, scheduler, scaler는 체크포인트 없으면 초기화
+    if 'optimizer' in checkpoint:
+        optimizer.load_state_dict(checkpoint['optimizer'])
+    if 'scheduler' in checkpoint:
+        scheduler.load_state_dict(checkpoint['scheduler'])
+    if 'scaler' in checkpoint:
         scaler.load_state_dict(checkpoint['scaler'])
-    epoch = checkpoint['epoch']
-    itr = checkpoint['itr']
+
+    epoch = checkpoint.get('epoch', 0)
+    itr = checkpoint.get('itr', 0)
 
     if rank==0:
         print(f"Checkpoint loaded from {ckpt_path}. Epoch: {epoch}, Itr: {itr}")
@@ -707,10 +748,12 @@ def init_wandb(args):
         wandb_key = get_token(args, "wandb")
     wandb.login(
         anonymous="never",
-        key=wandb_key
+        key=wandb_key,
+        relogin=True
     )
     wandb.init(
-        project="community-forensics",
+        entity="yjneon339-kyonggi-university", 
+        project="dacon_hecto_deepfake",
         config=args,
         save_code=True,
         dir=wandbpath,

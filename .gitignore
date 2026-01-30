@@ -3,3 +3,6 @@
 train_data/
 trained_model/
 .ipynb_checkpoints/
+*.zip
+*.tar.gz
+output/
