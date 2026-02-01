@@ -300,7 +300,7 @@ def train_one_epoch(
                 print("maxitr", len(train_loader))
                 print("Loss", loss.item())
                 print("Local loss", local_loss)
-        if rank==0 and args.wandb_token != "":
+        if rank == 0 and wandb.run is not None:
             wandb.log({
                 "iteration": itr,
                 "Loss (per itr)": loss.item(),
@@ -730,56 +730,56 @@ def get_token(args, label):
     token = df[df['label'] == label]["token"].values[0]
     return token
 
-def init_wandb(args):
-    """
-    Initializes wandb
+# def init_wandb(args):
+#     """
+#     Initializes wandb
 
-    Inputs:
-        args: parsed args using argparse
-    """
-    modelsavepath = os.path.dirname(args.save_path)
-    modelgivenname = ".".join(os.path.basename(args.save_path).split('.')[:-1]) if os.path.basename(args.save_path).find('.') != -1 else os.path.basename(args.save_path)
-    wandbname = os.path.join("wandb", modelgivenname)
-    wandbpath = os.path.join(modelsavepath, wandbname)
-    os.makedirs(wandbpath, exist_ok=True)
-    if args.wandb_token != "":
-        wandb_key = args.wandb_token
-    else:
-        wandb_key = get_token(args, "wandb")
-    wandb.login(
-        anonymous="never",
-        key=wandb_key,
-        relogin=True
-    )
-    wandb.init(
-        entity="yjneon339-kyonggi-university", 
-        project="dacon_hecto_deepfake",
-        config=args,
-        save_code=True,
-        dir=wandbpath,
-        name=modelgivenname,
-    )
-    wandb.define_metric("iteration")
-    wandb.define_metric("epoch")
-    wandb.define_metric("Local loss", step_metric="iteration")
-    wandb.define_metric("Loss (per itr)", step_metric="iteration")
-    wandb.define_metric("Learning Rate", step_metric="iteration")
-    wandb.define_metric("Loss (per epoch)", step_metric="epoch")
-    wandb.define_metric("Val Acc", step_metric="epoch")
-    wandb.define_metric("Val Loss", step_metric="epoch")
-    wandb.define_metric("Train Epoch Time", step_metric="epoch")
-    wandb.define_metric("Val Epoch Time", step_metric="epoch")
-    wandb.define_metric("Data Load Epoch Time", step_metric="epoch")
-    wandb.define_metric("Latency (Model) (per itr)", step_metric="iteration")
-    wandb.define_metric("Throughput (Model) (per itr)", step_metric="iteration")
-    wandb.define_metric("Latency (DataLoad) (per itr)", step_metric="iteration")
-    wandb.define_metric("Throughput (DataLoad) (per itr)", step_metric="iteration")
-    wandb.define_metric("Latency (Model)", step_metric="epoch")
-    wandb.define_metric("Throughput (Model)", step_metric="epoch")
-    wandb.define_metric("Latency (DataLoad)", step_metric="epoch")
-    wandb.define_metric("Throughput (DataLoad)", step_metric="epoch")
+#     Inputs:
+#         args: parsed args using argparse
+#     """
+#     modelsavepath = os.path.dirname(args.save_path)
+#     modelgivenname = ".".join(os.path.basename(args.save_path).split('.')[:-1]) if os.path.basename(args.save_path).find('.') != -1 else os.path.basename(args.save_path)
+#     wandbname = os.path.join("wandb", modelgivenname)
+#     wandbpath = os.path.join(modelsavepath, wandbname)
+#     os.makedirs(wandbpath, exist_ok=True)
+#     if args.wandb_token != "":
+#         wandb_key = args.wandb_token
+#     else:
+#         wandb_key = get_token(args, "wandb")
+#     wandb.login(
+#         anonymous="never",
+#         key=wandb_key,
+#         relogin=True
+#     )
+#     wandb.init(
+#         entity="yjneon339-kyonggi-university", 
+#         project="dacon_hecto_deepfake",
+#         config=args,
+#         save_code=True,
+#         dir=wandbpath,
+#         name=modelgivenname,
+#     )
+#     wandb.define_metric("iteration")
+#     wandb.define_metric("epoch")
+#     wandb.define_metric("Local loss", step_metric="iteration")
+#     wandb.define_metric("Loss (per itr)", step_metric="iteration")
+#     wandb.define_metric("Learning Rate", step_metric="iteration")
+#     wandb.define_metric("Loss (per epoch)", step_metric="epoch")
+#     wandb.define_metric("Val Acc", step_metric="epoch")
+#     wandb.define_metric("Val Loss", step_metric="epoch")
+#     wandb.define_metric("Train Epoch Time", step_metric="epoch")
+#     wandb.define_metric("Val Epoch Time", step_metric="epoch")
+#     wandb.define_metric("Data Load Epoch Time", step_metric="epoch")
+#     wandb.define_metric("Latency (Model) (per itr)", step_metric="iteration")
+#     wandb.define_metric("Throughput (Model) (per itr)", step_metric="iteration")
+#     wandb.define_metric("Latency (DataLoad) (per itr)", step_metric="iteration")
+#     wandb.define_metric("Throughput (DataLoad) (per itr)", step_metric="iteration")
+#     wandb.define_metric("Latency (Model)", step_metric="epoch")
+#     wandb.define_metric("Throughput (Model)", step_metric="epoch")
+#     wandb.define_metric("Latency (DataLoad)", step_metric="epoch")
+#     wandb.define_metric("Throughput (DataLoad)", step_metric="epoch")
     
-    return
+#     return
 
 class Benchmarker():
     """

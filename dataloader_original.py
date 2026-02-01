@@ -15,8 +15,6 @@ from custom_sampler import DistributedEvalSampler
 import custom_transforms as ctrans
 from functools import partial
 import utils as ut
-import torchvision.transforms.functional as TF
-import io
 
 # ================================
 # 지원 파일 확장자
@@ -247,70 +245,24 @@ def determine_resize_crop_sizes(args):
         return 256, 224
     elif args.input_size==384:
         return 440, 384
-class RandomGamma:
-    def __init__(self, gamma_range=(0.7, 1.5), p=0.5):
-        self.gamma_range = gamma_range
-        self.p = p
-
-    def __call__(self, img):
-        if random.random() > self.p:
-            return img
-
-        gamma = random.uniform(*self.gamma_range)
-        return TF.adjust_gamma(img, gamma)
-class RandomJPEGCompression:
-    def __init__(self, quality_range=(30, 100), p=0.5):
-        self.quality_range = quality_range
-        self.p = p
-
-    def __call__(self, img):
-        if random.random() > self.p:
-            return img
-
-        quality = random.randint(*self.quality_range)
-        buffer = io.BytesIO()
-        img.save(buffer, format="JPEG", quality=quality)
-        buffer.seek(0)
-        return Image.open(buffer).convert("RGB")
-# ================================
-# Transform getter (강력한 augmentation)
-# ================================
-from torchvision import transforms
 
 def get_transform(args, mode='train', dtype=torch.float32):
     resize, crop = determine_resize_crop_sizes(args)
     norm_mean, norm_std = [0.485,0.456,0.406], [0.229,0.224,0.225]
-
+    aug_list = [transforms.Resize(resize)]
     if mode=='train':
-        aug_list = [
-            transforms.Resize(resize),
-            transforms.RandomCrop(crop),
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomVerticalFlip(p=0.2),
-            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.05),
-            RandomGamma(gamma_range=(0.7, 1.5), p=0.4),
-            RandomJPEGCompression(quality_range=(30, 100), p=0.4),
-            transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.2),
-            transforms.RandomAffine(
-                degrees=15,
-                translate=(0.05, 0.05),
-                scale=(0.95, 1.05)
-            ),
-            ctrans.ToTensor_range(0,1),
-            transforms.Normalize(norm_mean, norm_std),
-            transforms.ConvertImageDtype(dtype)
-        ]
+        if args.rsa_ops != '':
+            aug_list.append(ctrans.RandomStateAugmentation(resize_size=resize, crop_size=crop,
+                                                           auglist=args.rsa_ops,
+                                                           min_augs=args.rsa_min_num_ops,
+                                                           max_augs=args.rsa_max_num_ops))
+        aug_list.append(transforms.RandomCrop(crop))
     else:
-        aug_list = [
-            transforms.Resize(resize),
-            transforms.CenterCrop(crop),
-            ctrans.ToTensor_range(0,1),
-            transforms.Normalize(norm_mean, norm_std),
-            transforms.ConvertImageDtype(dtype)
-        ]
-
+        aug_list.append(transforms.CenterCrop(crop))
+    aug_list.extend([ctrans.ToTensor_range(0,1),
+                     transforms.Normalize(norm_mean,norm_std),
+                     transforms.ConvertImageDtype(dtype)])
     return transforms.Compose(aug_list)
-
 
 # ================================
 # Seed utilities

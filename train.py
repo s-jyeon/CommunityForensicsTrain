@@ -32,8 +32,8 @@ def train(
     args.local_rank = local_rank
     args.world_size = world_size
 
-    if rank==0 and args.wandb_token != "":
-        ut.init_wandb(args)
+    use_wandb = (rank == 0) and ("WANDB_API_KEY" in os.environ)
+
 
     # Load data
     trainLoader, valLoader = ut.get_dataloader(args, mode='train')
@@ -97,6 +97,17 @@ def train(
     logger.info(f"Model loaded and DDP set. rank={rank}")
     best_val_ap = -1.0
 
+    # ===== WandB init (rank 0 only) =====
+    if use_wandb:
+        wandb.init(
+            project=os.environ.get("WANDB_PROJECT", getattr(args, "wandb_project", None)),
+            entity=os.environ.get("WANDB_ENTITY", getattr(args, "wandb_entity", None)),
+            name=os.environ.get("WANDB_RUN_NAME", getattr(args, "run_name", None)),
+            config=vars(args),
+        )
+        logger.info("WandB initialized")
+
+
     # Train
     local_window_loss=ut.LocalWindow(100)
 # Train 루프 시작
@@ -140,8 +151,9 @@ def train(
             wandb_log_dict = {"epoch": epoch+1, "Loss/Train": avgTrainLoss}
 
         # 1. wandb.log는 에포크마다 수행 (commit=True가 기본값)
-        if rank <= 0 and args.wandb_token != "":
+        if use_wandb:
             wandb.log(wandb_log_dict)
+
 
         # 2. wandb.finish()는 여기서 삭제 (루프 밖으로 이동)
         gc.collect() 
@@ -169,8 +181,9 @@ def train(
         logger.info(f"Final training results saved to {args.save_path}")
 
         # 3. WandB 종료
-        if args.wandb_token != "":
+        if use_wandb:
             wandb.finish()
+
 
 def main():
     args = ut.parse_args()

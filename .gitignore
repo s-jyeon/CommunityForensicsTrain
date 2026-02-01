@@ -8,3 +8,5 @@ trained_model/
 output/
 test_data.tar.xz
 test_data.tar.xz
+/wandb
+/test_data
